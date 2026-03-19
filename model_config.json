@@ -1,0 +1,77 @@
+{
+  "backbone_size": "vits14",
+  "n_classes": 11,
+  "image_w": 476,
+  "image_h": 266,
+  "n_embedding": 384,
+  "class_names": [
+    "Background",
+    "Trees",
+    "Lush Bushes",
+    "Dry Grass",
+    "Dry Bushes",
+    "Ground Clutter",
+    "Flowers",
+    "Logs",
+    "Rocks",
+    "Landscape",
+    "Sky"
+  ],
+  "class_colors": [
+    [
+      0,
+      0,
+      0
+    ],
+    [
+      34,
+      139,
+      34
+    ],
+    [
+      0,
+      255,
+      0
+    ],
+    [
+      210,
+      180,
+      140
+    ],
+    [
+      139,
+      90,
+      43
+    ],
+    [
+      128,
+      128,
+      128
+    ],
+    [
+      255,
+      105,
+      180
+    ],
+    [
+      101,
+      67,
+      33
+    ],
+    [
+      169,
+      169,
+      169
+    ],
+    [
+      222,
+      184,
+      135
+    ],
+    [
+      135,
+      206,
+      235
+    ]
+  ]
+}

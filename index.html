@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>OffRoad Vision — Terrain Segmentation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet"/>
+<style>
+/* ── Reset & Variables ─────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --ink:    #0d0d0f;
+  --paper:  #f5f2ec;
+  --mid:    #d8d3c8;
+  --accent: #e85d04;
+  --accent2:#2d6a4f;
+  --mono:   'DM Mono', monospace;
+  --sans:   'Syne', sans-serif;
+  --radius: 4px;
+  --shadow: 0 2px 20px rgba(0,0,0,.12);
+}
+
+html { font-size: 16px; scroll-behavior: smooth; }
+body {
+  font-family: var(--sans);
+  background: var(--paper);
+  color: var(--ink);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── Noise grain overlay ───────────────────────────── */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+  opacity: .6;
+}
+
+/* ── Header ────────────────────────────────────────── */
+header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1.4rem 3rem;
+  border-bottom: 1.5px solid var(--ink);
+  position: sticky; top: 0;
+  background: var(--paper);
+  z-index: 100;
+}
+.logo {
+  font-size: 1.05rem; font-weight: 800; letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.logo span { color: var(--accent); }
+.badge {
+  font-family: var(--mono); font-size: .72rem;
+  border: 1px solid var(--ink); padding: .25rem .7rem;
+  border-radius: 999px; letter-spacing: .05em;
+}
+
+/* ── Hero ──────────────────────────────────────────── */
+.hero {
+  display: grid; grid-template-columns: 1fr 1fr;
+  min-height: 38vh;
+  border-bottom: 1.5px solid var(--ink);
+}
+.hero-left {
+  padding: 4rem 3rem;
+  border-right: 1.5px solid var(--ink);
+  display: flex; flex-direction: column; justify-content: center;
+}
+.hero-eyebrow {
+  font-family: var(--mono); font-size: .75rem;
+  letter-spacing: .12em; text-transform: uppercase;
+  color: var(--accent); margin-bottom: .8rem;
+}
+h1 {
+  font-size: clamp(2.2rem, 4vw, 3.6rem);
+  font-weight: 800; line-height: 1.05;
+  letter-spacing: -.02em;
+}
+h1 em { font-style: normal; color: var(--accent2); }
+.hero-sub {
+  margin-top: 1.2rem; font-size: 1rem;
+  font-family: var(--mono); color: #555; line-height: 1.7;
+}
+.hero-right {
+  padding: 4rem 3rem;
+  display: flex; flex-direction: column; justify-content: center; gap: 1rem;
+}
+.pill-row { display: flex; flex-wrap: wrap; gap: .5rem; }
+.pill {
+  font-family: var(--mono); font-size: .72rem;
+  border: 1px solid var(--mid); padding: .3rem .8rem;
+  border-radius: 999px; background: white;
+  display: flex; align-items: center; gap: .4rem;
+}
+.pill-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  display: inline-block; flex-shrink: 0;
+}
+
+/* ── Main layout ───────────────────────────────────── */
+main {
+  display: grid;
+  grid-template-columns: minmax(320px,420px) 1fr;
+  min-height: calc(100vh - 120px);
+}
+
+/* ── Upload panel ──────────────────────────────────── */
+.upload-panel {
+  border-right: 1.5px solid var(--ink);
+  padding: 2.5rem 2rem;
+  display: flex; flex-direction: column; gap: 1.8rem;
+}
+.panel-label {
+  font-family: var(--mono); font-size: .7rem;
+  text-transform: uppercase; letter-spacing: .12em; color: #777;
+}
+
+/* Drop zone */
+.drop-zone {
+  border: 2px dashed var(--mid);
+  border-radius: var(--radius);
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+  background: white;
+  position: relative;
+}
+.drop-zone:hover, .drop-zone.drag-over {
+  border-color: var(--accent);
+  background: #fff7f3;
+}
+.drop-icon {
+  font-size: 2.2rem; margin-bottom: .7rem;
+  display: block;
+  transition: transform .3s;
+}
+.drop-zone:hover .drop-icon { transform: translateY(-4px); }
+.drop-text { font-size: .9rem; font-weight: 600; margin-bottom: .3rem; }
+.drop-sub  { font-family: var(--mono); font-size: .72rem; color: #888; }
+#file-input { display: none; }
+
+/* Preview */
+#preview-wrap { display: none; }
+#preview-img {
+  width: 100%; border-radius: var(--radius);
+  border: 1.5px solid var(--mid);
+  display: block;
+  max-height: 260px; object-fit: cover;
+}
+.preview-meta {
+  font-family: var(--mono); font-size: .7rem;
+  color: #777; margin-top: .5rem;
+  display: flex; justify-content: space-between;
+}
+
+/* Run button */
+#run-btn {
+  width: 100%;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--sans); font-weight: 700; font-size: .9rem;
+  letter-spacing: .06em; text-transform: uppercase;
+  border: none; border-radius: var(--radius);
+  padding: .9rem 1.5rem;
+  cursor: pointer;
+  transition: background .2s, transform .1s;
+  display: flex; align-items: center; justify-content: center; gap: .6rem;
+}
+#run-btn:hover  { background: var(--accent); }
+#run-btn:active { transform: scale(.98); }
+#run-btn:disabled { background: var(--mid); cursor: not-allowed; }
+.spinner {
+  width: 16px; height: 16px;
+  border: 2px solid rgba(255,255,255,.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+  display: none;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Legend */
+.legend { display: flex; flex-direction: column; gap: .5rem; }
+.legend-item {
+  display: flex; align-items: center; gap: .7rem;
+  font-family: var(--mono); font-size: .75rem;
+}
+.legend-swatch {
+  width: 14px; height: 14px; border-radius: 2px; flex-shrink: 0;
+  border: 1px solid rgba(0,0,0,.15);
+}
+
+/* ── Results panel ─────────────────────────────────── */
+.results-panel {
+  padding: 2.5rem 2.5rem;
+  display: flex; flex-direction: column; gap: 2rem;
+}
+
+/* Empty state */
+#empty-state {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  text-align: center; gap: 1rem; color: #aaa;
+}
+.empty-icon { font-size: 4rem; }
+.empty-text { font-family: var(--mono); font-size: .85rem; line-height: 1.7; }
+
+/* Tabs */
+.tabs { display: flex; gap: 0; border: 1.5px solid var(--ink); border-radius: var(--radius); overflow: hidden; }
+.tab-btn {
+  flex: 1; padding: .6rem .5rem;
+  font-family: var(--mono); font-size: .72rem;
+  letter-spacing: .07em; text-transform: uppercase;
+  background: white; border: none; cursor: pointer;
+  transition: background .15s, color .15s;
+  border-right: 1px solid var(--mid);
+}
+.tab-btn:last-child { border-right: none; }
+.tab-btn.active { background: var(--ink); color: var(--paper); }
+
+/* Image views */
+.view-area { display: none; }
+.view-area.active { display: block; }
+.result-img {
+  width: 100%; border-radius: var(--radius);
+  border: 1.5px solid var(--mid);
+  display: block;
+}
+
+/* Stats */
+#stats-panel { display: none; }
+.stat-row {
+  display: flex; align-items: center; gap: .8rem;
+  padding: .55rem 0;
+  border-bottom: 1px solid var(--mid);
+  animation: fadeUp .3s ease both;
+}
+@keyframes fadeUp { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+.stat-swatch {
+  width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0;
+  border: 1px solid rgba(0,0,0,.12);
+}
+.stat-name { font-weight: 600; font-size: .85rem; flex: 1; }
+.stat-bar-wrap { flex: 2; height: 6px; background: var(--mid); border-radius: 99px; overflow: hidden; }
+.stat-bar { height: 100%; background: var(--ink); border-radius: 99px; transition: width .6s cubic-bezier(.4,0,.2,1); }
+.stat-pct { font-family: var(--mono); font-size: .72rem; width: 3.5rem; text-align: right; }
+
+/* ── Responsive ────────────────────────────────────── */
+@media (max-width: 860px) {
+  .hero { grid-template-columns: 1fr; }
+  .hero-left { border-right: none; border-bottom: 1.5px solid var(--ink); }
+  main { grid-template-columns: 1fr; }
+  .upload-panel { border-right: none; border-bottom: 1.5px solid var(--ink); }
+  header { padding: 1rem 1.2rem; }
+}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="logo">OffRoad<span>Vision</span></div>
+  <div class="badge">DINOv2 · ConvNeXt Head · 10 Classes</div>
+</header>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-left">
+    <p class="hero-eyebrow">Semantic Segmentation</p>
+    <h1>See the <em>terrain</em>,<br>pixel by pixel.</h1>
+    <p class="hero-sub">Upload an off-road scene.<br>The model identifies every surface type in real time.</p>
+  </div>
+  <div class="hero-right">
+    <p class="panel-label">10 terrain classes</p>
+    <div class="pill-row" id="class-pills">
+      <!-- filled by JS -->
+    </div>
+  </div>
+</section>
+
+<!-- Main -->
+<main>
+
+  <!-- Left: upload + legend -->
+  <aside class="upload-panel">
+    <div>
+      <p class="panel-label" style="margin-bottom:.6rem">Upload Image</p>
+      <div class="drop-zone" id="drop-zone">
+        <span class="drop-icon">🖼️</span>
+        <p class="drop-text">Drop image here</p>
+        <p class="drop-sub">or click to browse · JPG / PNG</p>
+        <input type="file" id="file-input" accept="image/*"/>
+      </div>
+    </div>
+
+    <div id="preview-wrap">
+      <p class="panel-label" style="margin-bottom:.5rem">Preview</p>
+      <img id="preview-img" alt="preview"/>
+      <div class="preview-meta">
+        <span id="file-name">—</span>
+        <span id="file-size">—</span>
+      </div>
+    </div>
+
+    <button id="run-btn" disabled>
+      <div class="spinner" id="spinner"></div>
+      <span id="btn-text">▶ Run Segmentation</span>
+    </button>
+
+    <div>
+      <p class="panel-label" style="margin-bottom:.7rem">Legend</p>
+      <div class="legend" id="legend"><!-- filled by JS --></div>
+    </div>
+  </aside>
+
+  <!-- Right: results -->
+  <section class="results-panel">
+
+    <div id="empty-state">
+      <div class="empty-icon">🌲</div>
+      <p class="empty-text">No image analysed yet.<br>Upload a scene on the left and hit <strong>Run</strong>.</p>
+    </div>
+
+    <div id="result-content" style="display:none; flex-direction:column; gap:1.5rem;">
+
+      <!-- Tabs -->
+      <div>
+        <p class="panel-label" style="margin-bottom:.6rem">View</p>
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="overlay">Overlay</button>
+          <button class="tab-btn"        data-tab="mask">Mask only</button>
+          <button class="tab-btn"        data-tab="original">Original</button>
+        </div>
+      </div>
+
+      <div class="view-area active" id="tab-overlay">
+        <img class="result-img" id="img-overlay" alt="overlay"/>
+      </div>
+      <div class="view-area" id="tab-mask">
+        <img class="result-img" id="img-mask" alt="segmentation mask"/>
+      </div>
+      <div class="view-area" id="tab-original">
+        <img class="result-img" id="img-original" alt="original image"/>
+      </div>
+
+      <!-- Stats -->
+      <div id="stats-panel">
+        <p class="panel-label" style="margin-bottom:.8rem">Pixel Distribution</p>
+        <div id="stat-rows"></div>
+      </div>
+
+    </div>
+
+  </section>
+</main>
+
+<script>
+/* ── Class metadata ─────────────────────────────────── */
+const CLASSES = [
+  { name: "Background",      color: [0,  0,  0  ] },
+  { name: "Trees",           color: [34, 139,34 ] },
+  { name: "Lush Bushes",     color: [0,  200,100] },
+  { name: "Dry Grass",       color: [210,180,140] },
+  { name: "Dry Bushes",      color: [139,90, 43 ] },
+  { name: "Ground Clutter",  color: [128,128,0  ] },
+  { name: "Logs",            color: [101,67, 33 ] },
+  { name: "Rocks",           color: [169,169,169] },
+  { name: "Landscape",       color: [107,142,35 ] },
+  { name: "Sky",             color: [135,206,235] },
+];
+
+function rgb(c){ return `rgb(${c[0]},${c[1]},${c[2]})`; }
+
+/* Populate hero pills */
+const pillsEl = document.getElementById('class-pills');
+CLASSES.forEach(c => {
+  const p = document.createElement('div');
+  p.className = 'pill';
+  p.innerHTML = `<span class="pill-dot" style="background:${rgb(c.color)}"></span>${c.name}`;
+  pillsEl.appendChild(p);
+});
+
+/* Populate legend */
+const legendEl = document.getElementById('legend');
+CLASSES.forEach(c => {
+  legendEl.innerHTML += `
+    <div class="legend-item">
+      <span class="legend-swatch" style="background:${rgb(c.color)}"></span>
+      <span>${c.name}</span>
+    </div>`;
+});
+
+/* ── File handling ──────────────────────────────────── */
+const dropZone  = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const previewWrap = document.getElementById('preview-wrap');
+const previewImg  = document.getElementById('preview-img');
+const runBtn      = document.getElementById('run-btn');
+const spinner     = document.getElementById('spinner');
+const btnText     = document.getElementById('btn-text');
+let currentFile   = null;
+
+dropZone.addEventListener('click', () => fileInput.click());
+
+dropZone.addEventListener('dragover', e => {
+  e.preventDefault(); dropZone.classList.add('drag-over');
+});
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith('image/')) loadFile(f);
+});
+
+fileInput.addEventListener('change', () => {
+  if (fileInput.files[0]) loadFile(fileInput.files[0]);
+});
+
+function loadFile(file) {
+  currentFile = file;
+  const url = URL.createObjectURL(file);
+  previewImg.src = url;
+  previewWrap.style.display = 'block';
+  document.getElementById('file-name').textContent = file.name.length > 22
+    ? file.name.slice(0,19) + '…' : file.name;
+  document.getElementById('file-size').textContent =
+    (file.size / 1024).toFixed(0) + ' KB';
+  runBtn.disabled = false;
+
+  // hide old results
+  document.getElementById('empty-state').style.display = 'flex';
+  document.getElementById('result-content').style.display = 'none';
+}
+
+/* ── Tabs ───────────────────────────────────────────── */
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.view-area').forEach(v => v.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+/* ── Run inference ──────────────────────────────────── */
+runBtn.addEventListener('click', async () => {
+  if (!currentFile) return;
+
+  // loading state
+  runBtn.disabled = true;
+  spinner.style.display = 'block';
+  btnText.textContent = 'Running…';
+
+  const fd = new FormData();
+  fd.append('image', currentFile);
+
+  try {
+    const res  = await fetch('/predict', { method: 'POST', body: fd });
+    const data = await res.json();
+
+    if (data.error) { alert('Error: ' + data.error); return; }
+
+    // images
+    document.getElementById('img-overlay').src  = 'data:image/png;base64,' + data.overlay;
+    document.getElementById('img-mask').src      = 'data:image/png;base64,' + data.mask;
+    document.getElementById('img-original').src  = 'data:image/png;base64,' + data.original;
+
+    // stats
+    const statsEl = document.getElementById('stat-rows');
+    statsEl.innerHTML = '';
+    data.stats.forEach((s, i) => {
+      const color = rgb(s.color);
+      statsEl.innerHTML += `
+        <div class="stat-row" style="animation-delay:${i * 50}ms">
+          <span class="stat-swatch" style="background:${color}"></span>
+          <span class="stat-name">${s.name}</span>
+          <div class="stat-bar-wrap">
+            <div class="stat-bar" style="width:${s.percent}%; background:${color}"></div>
+          </div>
+          <span class="stat-pct">${s.percent}%</span>
+        </div>`;
+    });
+
+    document.getElementById('stats-panel').style.display = 'block';
+    document.getElementById('empty-state').style.display = 'none';
+    document.getElementById('result-content').style.display = 'flex';
+
+    // reset to overlay tab
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.view-area').forEach(v => v.classList.remove('active'));
+    document.querySelector('[data-tab="overlay"]').classList.add('active');
+    document.getElementById('tab-overlay').classList.add('active');
+
+  } catch (err) {
+    alert('Request failed. Is app.py running?\n' + err);
+  } finally {
+    runBtn.disabled = false;
+    spinner.style.display = 'none';
+    btnText.textContent = '▶ Run Segmentation';
+  }
+});
+</script>
+</body>
+</html>
